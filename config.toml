@@ -1,0 +1,18 @@
+# Infotube Configuration
+
+# List of text files to cycle through
+source_files = ["sample.txt"]
+
+# Default animation speed (milliseconds per tick)
+# Lower is faster
+scroll_speed_ms = 100
+
+# Network port for listening to interrupts
+listen_port = 8080
+
+[colors]
+# Hex colors or color names
+fg_default = "White"
+bg_default = "None"
+fg_alert = "Red"
+bg_alert = "None"
