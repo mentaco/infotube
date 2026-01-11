@@ -46,9 +46,9 @@ impl Default for Config {
             listen_port: 8080,
             colors: Colors {
                 fg_default: "White".to_string(),
-                bg_default: "Black".to_string(),
+                bg_default: "None".to_string(),
                 fg_alert: "Red".to_string(),
-                bg_alert: "Black".to_string(),
+                bg_alert: "None".to_string(),
             },
         }
     }

@@ -130,11 +130,20 @@ impl App {
         let is_alert = self.interrupt_text.is_some();
         
         // --- 色の設定 ---
-        // 設定ファイルから色をパース（失敗時はデフォルトを使用）
-        let fg_default = Color::from_str(&self.config.colors.fg_default).unwrap_or(Color::White);
-        let bg_default = Color::from_str(&self.config.colors.bg_default).unwrap_or(Color::Black);
-        let fg_alert = Color::from_str(&self.config.colors.fg_alert).unwrap_or(Color::Red);
-        let bg_alert = Color::from_str(&self.config.colors.bg_alert).unwrap_or(Color::Black);
+        // 文字列からColorへの変換ヘルパー
+        let parse_color = |s: &str, default: Color| -> Color {
+            if s.eq_ignore_ascii_case("None") {
+                Color::Reset
+            } else {
+                Color::from_str(s).unwrap_or(default)
+            }
+        };
+
+        // 設定ファイルから色をパース
+        let fg_default = parse_color(&self.config.colors.fg_default, Color::White);
+        let bg_default = parse_color(&self.config.colors.bg_default, Color::Reset); // デフォルトはReset(なし)
+        let fg_alert = parse_color(&self.config.colors.fg_alert, Color::Red);
+        let bg_alert = parse_color(&self.config.colors.bg_alert, Color::Reset);
 
         // 現在の状態（アラート中か、輝度調整中か）に応じて前景色を選択
         let fg_color = if is_alert {
