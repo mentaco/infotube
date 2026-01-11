@@ -111,7 +111,7 @@ impl App {
         let fg_alert = Color::from_str(&self.config.colors.fg_alert).unwrap_or(Color::Red);
         let bg_alert = Color::from_str(&self.config.colors.bg_alert).unwrap_or(Color::Black);
 
-        let mut fg_color = if is_alert {
+        let fg_color = if is_alert {
             fg_alert
         } else if self.dimmed {
             Color::DarkGray

@@ -9,7 +9,7 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::{backend::CrosstermBackend, Terminal};
-use std::io::{self, stdout};
+use std::io::stdout;
 use tokio::{io::AsyncReadExt, net::TcpListener, sync::mpsc};
 
 #[tokio::main]
