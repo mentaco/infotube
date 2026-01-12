@@ -174,7 +174,11 @@ impl App {
         // 枠線の有無に応じてブロックと内部領域を決定
         let (block, inner_area) = if self.config.show_frame {
             let title = if is_alert {
-                "Infotube - ALERT"
+                if self.paused {
+                    "Infotube - ALERT (Paused)"
+                } else {
+                    "Infotube - ALERT"
+                }
             } else if self.paused {
                 "Infotube (Paused)"
             } else {
@@ -193,38 +197,42 @@ impl App {
         
         let area_width = inner_area.width as usize;
         
-        // 表示するテキストの決定（割り込みがあればそれを優先）
-        // 割り込み時は残り時間をプレフィックスとして付与
-        let display_text_owned; // Cow的に扱うための一時変数
-        let display_text = if let Some(ref text) = self.interrupt_text {
+        // 表示するテキストとプレフィックスの決定
+        let (prefix, content_text) = if let Some(ref text) = self.interrupt_text {
             let seconds = (self.interrupt_remaining_ms as f64 / 1000.0).ceil() as usize;
-            display_text_owned = format!("({}s)  {}", seconds, text);
-            &display_text_owned
+            (format!("({}s)  ", seconds), text.as_str())
         } else {
-            &self.text
+            (String::new(), self.text.as_str())
         };
         
-        let text_width = display_text.width();
+        let prefix_width = prefix.width();
+        // 本文が利用できる幅（プレフィックス分を引く）
+        let content_available_width = area_width.saturating_sub(prefix_width);
+        let content_text_width = content_text.width();
 
-        let mut paragraph = if text_width <= area_width {
-            // 1. テキストが領域内に収まる場合：中央表示（枠線なし時は左詰め）
-            let alignment = if self.config.show_frame {
-                Alignment::Center
-            } else {
-                Alignment::Left
-            };
-            Paragraph::new(display_text.clone())
-                .alignment(alignment)
-                .style(style)
+        let mut displayed_string = String::from(&prefix);
+
+        // Alignmentの決定: 割り込み時は左詰め（時間を固定するため）、それ以外は設定依存
+        let alignment = if self.interrupt_text.is_some() {
+            Alignment::Left
+        } else if content_text_width <= area_width && self.config.show_frame {
+            Alignment::Center
+        } else {
+            Alignment::Left
+        };
+
+        if content_text_width <= content_available_width {
+            // 1. テキストが領域内に収まる場合
+            displayed_string.push_str(content_text);
         } else {
             // 2. テキストが領域を超える場合：マーキー（スクロール）表示
+            // ここでのスクロールは「本文部分のみ」に行う
             let spacer = "   ***   "; // 行の継ぎ目を示すスペーサー
-            let content = format!("{}{}", display_text, spacer);
+            let content = format!("{}{}", content_text, spacer);
             let content_width = content.width();
             
             // 現在のオフセットに基づいて表示する文字列を循環生成
             let offset = self.scroll_offset % content_width;
-            let mut displayed_string = String::new();
             let mut current_width = 0;
             let mut iter = content.chars().cycle();
             
@@ -240,20 +248,20 @@ impl App {
                 skipped_width += w;
             }
 
-            // 表示領域が埋まるまで文字を追加
+            // 表示領域が埋まるまで文字を追加（プレフィックス分を引いた幅まで）
             for c in iter {
-                if current_width >= area_width {
+                if current_width >= content_available_width {
                     break;
                 }
                 let w = c.width().unwrap_or(0);
                 displayed_string.push(c);
                 current_width += w;
             }
-
-            Paragraph::new(displayed_string)
-                .alignment(Alignment::Left) 
-                .style(style)
         };
+
+        let mut paragraph = Paragraph::new(displayed_string)
+            .alignment(alignment)
+            .style(style);
         
         if let Some(b) = block {
             paragraph = paragraph.block(b);
