@@ -25,12 +25,6 @@ pub struct App {
     pub scroll_offset: usize,
     
     // --- 情報ソース管理 ---
-    /// 設定ファイルから読み込まれた静的なテキスト行のリスト
-    pub source_lines: Vec<String>,
-    /// 現在表示しているテキストのインデックス
-    pub current_line_index: usize,
-    /// 静止テキストを表示し続けている時間（ティック数）のカウント
-    pub static_display_ticks: usize,
     /// 前回の描画時に判明した表示領域の幅（ bordersを除いた内側）
     pub last_known_width: usize,
 
@@ -49,35 +43,38 @@ pub struct App {
 
 impl App {
     pub fn new(config: Config) -> Self {
-        // 設定されたソースファイルから行を読み込む
-        let mut source_lines = Vec::new();
+        let mut all_files_content = Vec::new();
+
         for path in &config.source_files {
             if let Ok(content) = fs::read_to_string(path) {
-                for line in content.lines() {
-                    if !line.trim().is_empty() {
-                        source_lines.push(line.to_string());
-                    }
+                // ファイル内の全行を読み込み、トリムして空行を除外後、スペース4つで結合
+                let file_text = content
+                    .lines()
+                    .map(|line| line.trim())
+                    .filter(|line| !line.is_empty())
+                    .collect::<Vec<&str>>()
+                    .join("    ");
+                
+                if !file_text.is_empty() {
+                    all_files_content.push(file_text);
                 }
             } else {
                 eprintln!("Failed to read file: {}", path);
             }
         }
         
-        // ファイルが空だった場合のフォールバック
-        if source_lines.is_empty() {
-            source_lines.push("No data found in source files.".to_string());
-        }
+        let mut text = all_files_content.join("    ***    ");
 
-        let first_text = source_lines[0].clone();
+        // コンテンツが空だった場合のフォールバック
+        if text.is_empty() {
+            text = "No data found in source files.".to_string();
+        }
 
         Self {
             running: true,
             config,
-            text: first_text,
+            text,
             scroll_offset: 0,
-            source_lines,
-            current_line_index: 0,
-            static_display_ticks: 0,
             last_known_width: 0,
             interrupt_text: None,
             interrupt_remaining_ticks: 0,
@@ -285,33 +282,16 @@ impl App {
              return;
         }
 
-        // 通常メッセージのスクロールと切り替え処理
-        let content_width = self.text.width() + "   ***   ".width();
-
+        // 通常メッセージのスクロール
         if self.text.width() > width {
              // スクロールが必要な場合
              self.scroll_offset += 1;
-             if self.scroll_offset >= content_width {
-                 // 一周したら次のメッセージへ
-                 self.next_message();
-             }
+             // next_message()による切り替えは不要なので、offsetを増加させ続ける
+             // ui側で剰余計算を行っているため、offset自体は無限に増えても(usize上限まで)問題ない
         } else {
-             // スクロール不要な場合：一定時間静止
-             self.static_display_ticks += 1;
-             let ticks_needed = 5000 / self.config.scroll_speed_ms.max(1) as usize;
-             if self.static_display_ticks >= ticks_needed {
-                 self.next_message();
-             }
+             // スクロール不要な場合：常にオフセット0で静止
+             self.scroll_offset = 0;
         }
-    }
-
-    /// 次の表示メッセージに切り替える
-    fn next_message(&mut self) {
-        if self.source_lines.is_empty() { return; }
-        self.current_line_index = (self.current_line_index + 1) % self.source_lines.len();
-        self.text = self.source_lines[self.current_line_index].clone();
-        self.scroll_offset = 0;
-        self.static_display_ticks = 0;
     }
 
     /// キーイベント処理
