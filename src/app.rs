@@ -121,11 +121,17 @@ impl App {
 
     /// ユーザーインターフェースの描画ロジック
     fn ui(&self, f: &mut Frame) {
-        // 全画面を1つのチャンクとして使用
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Min(0)])
-            .split(f.area());
+        let area = f.area();
+        
+        // 枠線がない場合は1行目のみを使用するようにレイアウトを分割
+        let target_area = if !self.config.show_frame {
+            Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(1), Constraint::Min(0)])
+                .split(area)[0]
+        } else {
+            area
+        };
 
         let is_alert = self.interrupt_text.is_some();
         
@@ -156,25 +162,29 @@ impl App {
         };
         // 背景色の選択
         let bg_color = if is_alert { bg_alert } else { bg_default };
-
-        // --- ウィジェットの作成 ---
-        let title = if is_alert {
-            "Infotube - ALERT"
-        } else if self.paused {
-            "Infotube (Paused)"
-        } else {
-            "Infotube"
-        };
-
-        // 枠線の設定
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(title)
-            // Block全体にスタイルを適用（ここが枠線の色にも影響する）
-            .style(Style::default().fg(fg_color).bg(bg_color));
         
-        let area = chunks[0];
-        let inner_area = block.inner(area); // 枠線の内側の領域
+        let style = Style::default().fg(fg_color).bg(bg_color);
+
+        // 枠線の有無に応じてブロックと内部領域を決定
+        let (block, inner_area) = if self.config.show_frame {
+            let title = if is_alert {
+                "Infotube - ALERT"
+            } else if self.paused {
+                "Infotube (Paused)"
+            } else {
+                "Infotube"
+            };
+            
+            let b = Block::default()
+                .borders(Borders::ALL)
+                .title(title)
+                .style(style);
+            let inner = b.inner(target_area);
+            (Some(b), inner)
+        } else {
+            (None, target_area)
+        };
+        
         let area_width = inner_area.width as usize;
         
         // 表示するテキストの決定（割り込みがあればそれを優先）
@@ -185,13 +195,16 @@ impl App {
         };
         
         let text_width = display_text.width();
-        let style = Style::default().fg(fg_color).bg(bg_color);
 
-        let paragraph = if text_width <= area_width {
-            // 1. テキストが領域内に収まる場合：中央表示
+        let mut paragraph = if text_width <= area_width {
+            // 1. テキストが領域内に収まる場合：中央表示（枠線なし時は左詰め）
+            let alignment = if self.config.show_frame {
+                Alignment::Center
+            } else {
+                Alignment::Left
+            };
             Paragraph::new(display_text.clone())
-                .block(block)
-                .alignment(Alignment::Center)
+                .alignment(alignment)
                 .style(style)
         } else {
             // 2. テキストが領域を超える場合：マーキー（スクロール）表示
@@ -228,20 +241,27 @@ impl App {
             }
 
             Paragraph::new(displayed_string)
-                .block(block)
                 .alignment(Alignment::Left) 
                 .style(style)
         };
+        
+        if let Some(b) = block {
+            paragraph = paragraph.block(b);
+        }
 
         // 描画
-        f.render_widget(paragraph, chunks[0]);
+        f.render_widget(paragraph, target_area);
     }
 
     /// 時間経過による状態更新ロジック
     fn on_tick(&mut self) {
         // ターミナルの現在の幅を取得（スクロール判定に使用）
         let width = if let Ok((w, _h)) = crossterm::terminal::size() {
-             w.saturating_sub(2) as usize // 枠線分を引く
+             if self.config.show_frame {
+                 w.saturating_sub(2) as usize // 枠線分を引く
+             } else {
+                 w as usize
+             }
         } else {
              80
         };
@@ -302,6 +322,7 @@ impl App {
                     match key.code {
                         KeyCode::Char('q') | KeyCode::Esc => self.running = false, // 終了
                         KeyCode::Char(' ') => self.paused = !self.paused,        // 一時停止
+                        KeyCode::Char('f') => self.config.show_frame = !self.config.show_frame, // 枠線表示切替
                         KeyCode::Char('b') => self.dimmed = !self.dimmed,        // 輝度調整
                         KeyCode::Char('+') | KeyCode::Char('k') => {             // 加速
                             if self.config.scroll_speed_ms > 10 {
