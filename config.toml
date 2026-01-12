@@ -13,6 +13,11 @@ listen_port = 8080
 # Show frame around the widget
 show_frame = true
 
+# Alert sound name (macOS System Sounds)
+# Examples: "Ping", "Glass", "Sosumi", "Tink", "Basso"
+# Set to "None" to disable sound
+alert_sound = "Ping"
+
 [colors]
 # Hex colors or color names
 fg_default = "White"

@@ -131,6 +131,23 @@ impl App {
                 }
                 // TCP割り込みメッセージの受信
                 Some(msg) = rx.recv() => {
+                    // 設定されたサウンド名を取得
+                    let sound_name = &self.config.alert_sound;
+                    if !sound_name.is_empty() && sound_name != "None" {
+                        let mut sound_path = format!("/System/Library/Sounds/{}", sound_name);
+                        if !sound_name.ends_with(".aiff") {
+                            sound_path.push_str(".aiff");
+                        }
+
+                        // macOS標準のサウンド再生コマンドを非同期で実行
+                        tokio::spawn(async move {
+                            let _ = tokio::process::Command::new("afplay")
+                                .arg(sound_path)
+                                .output()
+                                .await;
+                        });
+                    }
+
                     self.paused_before_interrupt = self.paused;
                     self.saved_scroll_offset = self.scroll_offset;
                     self.paused = false; // 強制的に再生
