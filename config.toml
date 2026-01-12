@@ -10,6 +10,9 @@ scroll_speed_ms = 100
 # Network port for listening to interrupts
 listen_port = 8080
 
+# Show frame around the widget
+show_frame = true
+
 [colors]
 # Hex colors or color names
 fg_default = "White"

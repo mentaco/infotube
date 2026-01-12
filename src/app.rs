@@ -25,20 +25,18 @@ pub struct App {
     pub scroll_offset: usize,
     
     // --- 情報ソース管理 ---
-    /// 設定ファイルから読み込まれた静的なテキスト行のリスト
-    pub source_lines: Vec<String>,
-    /// 現在表示しているテキストのインデックス
-    pub current_line_index: usize,
-    /// 静止テキストを表示し続けている時間（ティック数）のカウント
-    pub static_display_ticks: usize,
     /// 前回の描画時に判明した表示領域の幅（ bordersを除いた内側）
     pub last_known_width: usize,
 
     // --- 割り込み通知管理 ---
     /// TCP経由で受信した緊急割り込みメッセージ（存在する場合）
     pub interrupt_text: Option<String>,
-    /// 割り込みメッセージを表示し続ける残り時間（ティック数）
-    pub interrupt_remaining_ticks: usize,
+    /// 割り込みメッセージを表示し続ける残り時間（ミリ秒）
+    pub interrupt_remaining_ms: usize,
+    /// 割り込み発生前の一時停止状態を保持
+    pub paused_before_interrupt: bool,
+    /// 割り込み発生前のスクロール位置を保持
+    pub saved_scroll_offset: usize,
 
     // --- ユーザー操作状態 ---
     /// 一時停止中かどうかのフラグ
@@ -49,38 +47,43 @@ pub struct App {
 
 impl App {
     pub fn new(config: Config) -> Self {
-        // 設定されたソースファイルから行を読み込む
-        let mut source_lines = Vec::new();
+        let mut all_files_content = Vec::new();
+
         for path in &config.source_files {
             if let Ok(content) = fs::read_to_string(path) {
-                for line in content.lines() {
-                    if !line.trim().is_empty() {
-                        source_lines.push(line.to_string());
-                    }
+                // ファイル内の全行を読み込み、トリムして空行を除外後、スペース4つで結合
+                let file_text = content
+                    .lines()
+                    .map(|line| line.trim())
+                    .filter(|line| !line.is_empty())
+                    .collect::<Vec<&str>>()
+                    .join("    ");
+                
+                if !file_text.is_empty() {
+                    all_files_content.push(file_text);
                 }
             } else {
                 eprintln!("Failed to read file: {}", path);
             }
         }
         
-        // ファイルが空だった場合のフォールバック
-        if source_lines.is_empty() {
-            source_lines.push("No data found in source files.".to_string());
-        }
+        let mut text = all_files_content.join("    ***    ");
 
-        let first_text = source_lines[0].clone();
+        // コンテンツが空だった場合のフォールバック
+        if text.is_empty() {
+            text = "No data found in source files.".to_string();
+        }
 
         Self {
             running: true,
             config,
-            text: first_text,
+            text,
             scroll_offset: 0,
-            source_lines,
-            current_line_index: 0,
-            static_display_ticks: 0,
             last_known_width: 0,
             interrupt_text: None,
-            interrupt_remaining_ticks: 0,
+            interrupt_remaining_ms: 0,
+            paused_before_interrupt: false,
+            saved_scroll_offset: 0,
             paused: false,
             dimmed: false,
         }
@@ -108,8 +111,11 @@ impl App {
                 }
                 // TCP割り込みメッセージの受信
                 Some(msg) = rx.recv() => {
+                    self.paused_before_interrupt = self.paused;
+                    self.saved_scroll_offset = self.scroll_offset;
+                    self.paused = false; // 強制的に再生
                     self.interrupt_text = Some(msg);
-                    self.interrupt_remaining_ticks = 100; // 約10秒間表示（100ms * 100）
+                    self.interrupt_remaining_ms = 9000; // 9秒間表示
                     self.scroll_offset = 0; // スクロール位置をリセット
                 }
                 // キーボードイベントの処理
@@ -121,11 +127,17 @@ impl App {
 
     /// ユーザーインターフェースの描画ロジック
     fn ui(&self, f: &mut Frame) {
-        // 全画面を1つのチャンクとして使用
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Min(0)])
-            .split(f.area());
+        let area = f.area();
+        
+        // 枠線がない場合は1行目のみを使用するようにレイアウトを分割
+        let target_area = if !self.config.show_frame {
+            Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(1), Constraint::Min(0)])
+                .split(area)[0]
+        } else {
+            area
+        };
 
         let is_alert = self.interrupt_text.is_some();
         
@@ -156,52 +168,71 @@ impl App {
         };
         // 背景色の選択
         let bg_color = if is_alert { bg_alert } else { bg_default };
-
-        // --- ウィジェットの作成 ---
-        let title = if is_alert {
-            "Infotube - ALERT"
-        } else if self.paused {
-            "Infotube (Paused)"
-        } else {
-            "Infotube"
-        };
-
-        // 枠線の設定
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(title)
-            // Block全体にスタイルを適用（ここが枠線の色にも影響する）
-            .style(Style::default().fg(fg_color).bg(bg_color));
         
-        let area = chunks[0];
-        let inner_area = block.inner(area); // 枠線の内側の領域
-        let area_width = inner_area.width as usize;
-        
-        // 表示するテキストの決定（割り込みがあればそれを優先）
-        let display_text = if let Some(ref text) = self.interrupt_text {
-            text
-        } else {
-            &self.text
-        };
-        
-        let text_width = display_text.width();
         let style = Style::default().fg(fg_color).bg(bg_color);
 
-        let paragraph = if text_width <= area_width {
-            // 1. テキストが領域内に収まる場合：中央表示
-            Paragraph::new(display_text.clone())
-                .block(block)
-                .alignment(Alignment::Center)
-                .style(style)
+        // 枠線の有無に応じてブロックと内部領域を決定
+        let (block, inner_area) = if self.config.show_frame {
+            let title = if is_alert {
+                if self.paused {
+                    "Infotube - ALERT (Paused)"
+                } else {
+                    "Infotube - ALERT"
+                }
+            } else if self.paused {
+                "Infotube (Paused)"
+            } else {
+                "Infotube"
+            };
+            
+            let b = Block::default()
+                .borders(Borders::ALL)
+                .title(title)
+                .style(style);
+            let inner = b.inner(target_area);
+            (Some(b), inner)
+        } else {
+            (None, target_area)
+        };
+        
+        let area_width = inner_area.width as usize;
+        
+        // 表示するテキストとプレフィックスの決定
+        let (prefix, content_text) = if let Some(ref text) = self.interrupt_text {
+            let seconds = (self.interrupt_remaining_ms as f64 / 1000.0).ceil() as usize;
+            (format!("({}s)  ", seconds), text.as_str())
+        } else {
+            (String::new(), self.text.as_str())
+        };
+        
+        let prefix_width = prefix.width();
+        // 本文が利用できる幅（プレフィックス分を引く）
+        let content_available_width = area_width.saturating_sub(prefix_width);
+        let content_text_width = content_text.width();
+
+        let mut displayed_string = String::from(&prefix);
+
+        // Alignmentの決定: 割り込み時は左詰め（時間を固定するため）、それ以外は設定依存
+        let alignment = if self.interrupt_text.is_some() {
+            Alignment::Left
+        } else if content_text_width <= area_width && self.config.show_frame {
+            Alignment::Center
+        } else {
+            Alignment::Left
+        };
+
+        if content_text_width <= content_available_width {
+            // 1. テキストが領域内に収まる場合
+            displayed_string.push_str(content_text);
         } else {
             // 2. テキストが領域を超える場合：マーキー（スクロール）表示
+            // ここでのスクロールは「本文部分のみ」に行う
             let spacer = "   ***   "; // 行の継ぎ目を示すスペーサー
-            let content = format!("{}{}", display_text, spacer);
+            let content = format!("{}{}", content_text, spacer);
             let content_width = content.width();
             
             // 現在のオフセットに基づいて表示する文字列を循環生成
             let offset = self.scroll_offset % content_width;
-            let mut displayed_string = String::new();
             let mut current_width = 0;
             let mut iter = content.chars().cycle();
             
@@ -217,81 +248,76 @@ impl App {
                 skipped_width += w;
             }
 
-            // 表示領域が埋まるまで文字を追加
+            // 表示領域が埋まるまで文字を追加（プレフィックス分を引いた幅まで）
             for c in iter {
-                if current_width >= area_width {
+                if current_width >= content_available_width {
                     break;
                 }
                 let w = c.width().unwrap_or(0);
                 displayed_string.push(c);
                 current_width += w;
             }
-
-            Paragraph::new(displayed_string)
-                .block(block)
-                .alignment(Alignment::Left) 
-                .style(style)
         };
 
+        let mut paragraph = Paragraph::new(displayed_string)
+            .alignment(alignment)
+            .style(style);
+        
+        if let Some(b) = block {
+            paragraph = paragraph.block(b);
+        }
+
         // 描画
-        f.render_widget(paragraph, chunks[0]);
+        f.render_widget(paragraph, target_area);
     }
 
     /// 時間経過による状態更新ロジック
     fn on_tick(&mut self) {
         // ターミナルの現在の幅を取得（スクロール判定に使用）
         let width = if let Ok((w, _h)) = crossterm::terminal::size() {
-             w.saturating_sub(2) as usize // 枠線分を引く
+             if self.config.show_frame {
+                 w.saturating_sub(2) as usize // 枠線分を引く
+             } else {
+                 w as usize
+             }
         } else {
              80
         };
         self.last_known_width = width;
         
         // 割り込みメッセージ表示中の処理
-        if let Some(_) = self.interrupt_text {
-            if self.interrupt_remaining_ticks > 0 {
-                self.interrupt_remaining_ticks -= 1;
+        if let Some(ref text) = self.interrupt_text {
+            let elapsed = self.config.scroll_speed_ms as usize;
+            if self.interrupt_remaining_ms > elapsed {
+                self.interrupt_remaining_ms -= elapsed;
             } else {
                 // 表示期限切れ
                 self.interrupt_text = None;
-                self.scroll_offset = 0;
+                self.paused = self.paused_before_interrupt;
+                self.scroll_offset = self.saved_scroll_offset;
+                return;
             }
             
-            // 割り込みメッセージ自体のスクロール
-            let current_text = self.interrupt_text.as_ref().unwrap();
-             if current_text.width() > width {
+            // 割り込みメッセージ自体のスクロール（プレフィックス込みの長さを判定）
+            let seconds = (self.interrupt_remaining_ms as f64 / 1000.0).ceil() as usize;
+            let display_text = format!("({}s)  {}", seconds, text);
+
+             if display_text.width() > width {
                  self.scroll_offset += 1;
              }
              return;
         }
 
-        // 通常メッセージのスクロールと切り替え処理
-        let content_width = self.text.width() + "   ***   ".width();
-
+        // 通常メッセージのスクロール
         if self.text.width() > width {
              // スクロールが必要な場合
              self.scroll_offset += 1;
-             if self.scroll_offset >= content_width {
-                 // 一周したら次のメッセージへ
-                 self.next_message();
-             }
+             // next_message()による切り替えは不要なので、offsetを増加させ続ける
+             // ui側で剰余計算を行っているため、offset自体は無限に増えても(usize上限まで)問題ない
         } else {
-             // スクロール不要な場合：一定時間静止
-             self.static_display_ticks += 1;
-             let ticks_needed = 5000 / self.config.scroll_speed_ms.max(1) as usize;
-             if self.static_display_ticks >= ticks_needed {
-                 self.next_message();
-             }
+             // スクロール不要な場合：常にオフセット0で静止
+             self.scroll_offset = 0;
         }
-    }
-
-    /// 次の表示メッセージに切り替える
-    fn next_message(&mut self) {
-        if self.source_lines.is_empty() { return; }
-        self.current_line_index = (self.current_line_index + 1) % self.source_lines.len();
-        self.text = self.source_lines[self.current_line_index].clone();
-        self.scroll_offset = 0;
-        self.static_display_ticks = 0;
     }
 
     /// キーイベント処理
@@ -301,7 +327,16 @@ impl App {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
                         KeyCode::Char('q') | KeyCode::Esc => self.running = false, // 終了
+                        KeyCode::Enter => {
+                            // Enterキーで割り込みを即時終了し、元の状態に復帰
+                            if self.interrupt_text.is_some() {
+                                self.interrupt_text = None;
+                                self.paused = self.paused_before_interrupt;
+                                self.scroll_offset = self.saved_scroll_offset;
+                            }
+                        }
                         KeyCode::Char(' ') => self.paused = !self.paused,        // 一時停止
+                        KeyCode::Char('f') => self.config.show_frame = !self.config.show_frame, // 枠線表示切替
                         KeyCode::Char('b') => self.dimmed = !self.dimmed,        // 輝度調整
                         KeyCode::Char('+') | KeyCode::Char('k') => {             // 加速
                             if self.config.scroll_speed_ms > 10 {
