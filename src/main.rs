@@ -16,11 +16,12 @@ use tokio::{io::AsyncReadExt, net::TcpListener, sync::mpsc};
 #[tokio::main]
 async fn main() -> Result<()> {
     // 1. 設定の読み込み
-    // config.tomlの読み込みを試み、失敗した場合はデフォルト設定を使用する
-    let config = Config::load("config.toml").unwrap_or_else(|e| {
-        eprintln!("Failed to load config: {}, using defaults", e);
-        Config::default()
-    });
+    // ~/.config/infotube/config.toml があれば読み込み、なければデフォルト設定を使用
+    let config = dirs::home_dir()
+        .map(|home| home.join(".config/infotube/config.toml"))
+        .filter(|path| path.exists())
+        .and_then(|path| Config::load(path).ok())
+        .unwrap_or_else(Config::default);
 
     // 2. TCP割り込み通知用のチャンネル作成
     // 非同期タスクからメインのUIループへメッセージを送るためのMPSCチャンネル

@@ -15,12 +15,19 @@ pub struct Config {
     /// 枠線を表示するかどうか
     #[serde(default = "default_show_frame")]
     pub show_frame: bool,
+    /// 割り込み時のサウンド名 (例: "Ping", "Glass")
+    #[serde(default = "default_alert_sound")]
+    pub alert_sound: String,
     /// 配色設定
     pub colors: Colors,
 }
 
 fn default_show_frame() -> bool {
     true
+}
+
+fn default_alert_sound() -> String {
+    "Ping".to_string()
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -52,6 +59,7 @@ impl Default for Config {
             scroll_speed_ms: 100,
             listen_port: 8080,
             show_frame: true,
+            alert_sound: "Ping".to_string(),
             colors: Colors {
                 fg_default: "White".to_string(),
                 bg_default: "None".to_string(),

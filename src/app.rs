@@ -49,8 +49,28 @@ impl App {
     pub fn new(config: Config) -> Self {
         let mut all_files_content = Vec::new();
 
-        for path in &config.source_files {
-            if let Ok(content) = fs::read_to_string(path) {
+        for path_str in &config.source_files {
+            // ~ (チルダ) の展開を行う
+            let path = if path_str.starts_with("~") {
+                if let Some(home) = dirs::home_dir() {
+                    // "~/" または "~" をホームディレクトリのパスに置き換える
+                    if path_str == "~" {
+                         home
+                    } else if path_str.starts_with("~/") {
+                         home.join(&path_str[2..])
+                    } else {
+                         // "~username" のような形式は簡易的には対応せず、そのまま扱うか
+                         // 必要なら別途対応するが、ここでは単純な置換とする
+                         std::path::PathBuf::from(path_str)
+                    }
+                } else {
+                    std::path::PathBuf::from(path_str)
+                }
+            } else {
+                std::path::PathBuf::from(path_str)
+            };
+
+            if let Ok(content) = fs::read_to_string(&path) {
                 // ファイル内の全行を読み込み、トリムして空行を除外後、スペース4つで結合
                 let file_text = content
                     .lines()
@@ -63,7 +83,7 @@ impl App {
                     all_files_content.push(file_text);
                 }
             } else {
-                eprintln!("Failed to read file: {}", path);
+                eprintln!("Failed to read file: {:?}", path);
             }
         }
         
@@ -111,6 +131,23 @@ impl App {
                 }
                 // TCP割り込みメッセージの受信
                 Some(msg) = rx.recv() => {
+                    // 設定されたサウンド名を取得
+                    let sound_name = &self.config.alert_sound;
+                    if !sound_name.is_empty() && sound_name != "None" {
+                        let mut sound_path = format!("/System/Library/Sounds/{}", sound_name);
+                        if !sound_name.ends_with(".aiff") {
+                            sound_path.push_str(".aiff");
+                        }
+
+                        // macOS標準のサウンド再生コマンドを非同期で実行
+                        tokio::spawn(async move {
+                            let _ = tokio::process::Command::new("afplay")
+                                .arg(sound_path)
+                                .output()
+                                .await;
+                        });
+                    }
+
                     self.paused_before_interrupt = self.paused;
                     self.saved_scroll_offset = self.scroll_offset;
                     self.paused = false; // 強制的に再生
