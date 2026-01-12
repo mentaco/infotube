@@ -31,8 +31,12 @@ pub struct App {
     // --- 割り込み通知管理 ---
     /// TCP経由で受信した緊急割り込みメッセージ（存在する場合）
     pub interrupt_text: Option<String>,
-    /// 割り込みメッセージを表示し続ける残り時間（ティック数）
-    pub interrupt_remaining_ticks: usize,
+    /// 割り込みメッセージを表示し続ける残り時間（ミリ秒）
+    pub interrupt_remaining_ms: usize,
+    /// 割り込み発生前の一時停止状態を保持
+    pub paused_before_interrupt: bool,
+    /// 割り込み発生前のスクロール位置を保持
+    pub saved_scroll_offset: usize,
 
     // --- ユーザー操作状態 ---
     /// 一時停止中かどうかのフラグ
@@ -77,7 +81,9 @@ impl App {
             scroll_offset: 0,
             last_known_width: 0,
             interrupt_text: None,
-            interrupt_remaining_ticks: 0,
+            interrupt_remaining_ms: 0,
+            paused_before_interrupt: false,
+            saved_scroll_offset: 0,
             paused: false,
             dimmed: false,
         }
@@ -105,8 +111,11 @@ impl App {
                 }
                 // TCP割り込みメッセージの受信
                 Some(msg) = rx.recv() => {
+                    self.paused_before_interrupt = self.paused;
+                    self.saved_scroll_offset = self.scroll_offset;
+                    self.paused = false; // 強制的に再生
                     self.interrupt_text = Some(msg);
-                    self.interrupt_remaining_ticks = 100; // 約10秒間表示（100ms * 100）
+                    self.interrupt_remaining_ms = 9000; // 9秒間表示
                     self.scroll_offset = 0; // スクロール位置をリセット
                 }
                 // キーボードイベントの処理
@@ -185,8 +194,12 @@ impl App {
         let area_width = inner_area.width as usize;
         
         // 表示するテキストの決定（割り込みがあればそれを優先）
+        // 割り込み時は残り時間をプレフィックスとして付与
+        let display_text_owned; // Cow的に扱うための一時変数
         let display_text = if let Some(ref text) = self.interrupt_text {
-            text
+            let seconds = (self.interrupt_remaining_ms as f64 / 1000.0).ceil() as usize;
+            display_text_owned = format!("({}s)  {}", seconds, text);
+            &display_text_owned
         } else {
             &self.text
         };
@@ -265,18 +278,23 @@ impl App {
         self.last_known_width = width;
         
         // 割り込みメッセージ表示中の処理
-        if let Some(_) = self.interrupt_text {
-            if self.interrupt_remaining_ticks > 0 {
-                self.interrupt_remaining_ticks -= 1;
+        if let Some(ref text) = self.interrupt_text {
+            let elapsed = self.config.scroll_speed_ms as usize;
+            if self.interrupt_remaining_ms > elapsed {
+                self.interrupt_remaining_ms -= elapsed;
             } else {
                 // 表示期限切れ
                 self.interrupt_text = None;
-                self.scroll_offset = 0;
+                self.paused = self.paused_before_interrupt;
+                self.scroll_offset = self.saved_scroll_offset;
+                return;
             }
             
-            // 割り込みメッセージ自体のスクロール
-            let current_text = self.interrupt_text.as_ref().unwrap();
-             if current_text.width() > width {
+            // 割り込みメッセージ自体のスクロール（プレフィックス込みの長さを判定）
+            let seconds = (self.interrupt_remaining_ms as f64 / 1000.0).ceil() as usize;
+            let display_text = format!("({}s)  {}", seconds, text);
+
+             if display_text.width() > width {
                  self.scroll_offset += 1;
              }
              return;
@@ -301,6 +319,14 @@ impl App {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
                         KeyCode::Char('q') | KeyCode::Esc => self.running = false, // 終了
+                        KeyCode::Enter => {
+                            // Enterキーで割り込みを即時終了し、元の状態に復帰
+                            if self.interrupt_text.is_some() {
+                                self.interrupt_text = None;
+                                self.paused = self.paused_before_interrupt;
+                                self.scroll_offset = self.saved_scroll_offset;
+                            }
+                        }
                         KeyCode::Char(' ') => self.paused = !self.paused,        // 一時停止
                         KeyCode::Char('f') => self.config.show_frame = !self.config.show_frame, // 枠線表示切替
                         KeyCode::Char('b') => self.dimmed = !self.dimmed,        // 輝度調整
