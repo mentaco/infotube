@@ -37,7 +37,8 @@ impl EventHandler {
         tokio::spawn(async move {
             let mut reader = crossterm::event::EventStream::new();
             let mut interval = tokio::time::interval(Duration::from_millis(tick_rate));
-            
+            let mut last_tick = tokio::time::Instant::now();
+
             loop {
                 let tick_delay = interval.tick();
                 let crossterm_event = reader.next();
@@ -45,9 +46,19 @@ impl EventHandler {
                 tokio::select! {
                     // Update tick rate if requested
                     Some(new_rate) = tick_speed_rx.recv() => {
-                        interval = tokio::time::interval(Duration::from_millis(new_rate));
+                        let new_duration = Duration::from_millis(new_rate);
+                        
+                        let next_target = last_tick + new_duration;
+                        let now = tokio::time::Instant::now();
+                        let start_time = if next_target > now { next_target } else { now };
+
+                        interval = tokio::time::interval_at(
+                            start_time,
+                            new_duration
+                        );
                     }
                     _ = tick_delay => {
+                        last_tick = tokio::time::Instant::now();
                         if _tx.send(Event::Tick).is_err() {
                             break;
                         }
