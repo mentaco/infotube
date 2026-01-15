@@ -1,5 +1,0 @@
-Infotube is a smart news ticker for your terminal. It can display information from static files or receive real-time notifications via TCP/UDP sockets.
-This is a longer line to test the marquee scrolling animation of Infotube. When the text is too long to fit in the window, it will automatically start scrolling from right to left!
-You can use Infotube to keep track of your tasks, study new commands, or get notified when a long-running process finishes.
-Infotube supports custom colors, adjustable speed, and brightness control. Try pressing '+' or '-' to change the speed, 'b' to dim the display, and 'Space' to pause.
-Infotube is built with Rust and uses the Ratatui library for its terminal user interface. Enjoy!
