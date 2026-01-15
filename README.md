@@ -14,10 +14,18 @@ Infotubeは、ターミナル環境（特にtmuxやzellijなどのターミナ�
     *   ToDoリストや備忘録、格言などを常に表示させておくのに最適です。
 *   **リアルタイム割り込み通知**:
     *   TCPソケットをリッスンし、外部から送信されたテキストを即座に表示します。
-    *   ビルド完了通知や長時間タスクの終了アラートなどに利用できます。
-    *   macOSではシステムサウンドによる通知音も再生可能です。
-*   **高度なカスタマイズ**:
-    *   スクロール速度、配色、フレームの有無などを設定ファイルで細かく調整できます。
+        * ビルド完了通知や長時間タスクの終了アラートなどに利用できます。
+        * macOSではシステムサウンドによる通知音も再生可能です。
+    *   **Web API連携**:
+        *   設定したAPIを定期的にポーリングし、最新情報（株価、地震速報など）を割り込み表示します。
+            *   JSONレスポンスからの特定フィールド抽出もサポートしています。
+        *   **WebSocket連携**:
+            *   WebSocketサーバーに接続し、リアルタイム情報を即座に表示します。
+            *   P2P地震情報などのプッシュ型配信に対応。
+        *   **高度なカスタマイズ**:
+        
+        *   スクロール速度、配色、フレームの有無などを設定ファイルで細かく調整できます。
+    
     *   実行中もキー操作で一時停止や速度変更が可能です。
 
 ## インストール
@@ -53,6 +61,9 @@ listen_port = 8080
 # 枠線を表示するかどうか
 show_frame = true
 
+# 割り込み表示の継続時間（秒）
+interrupt_duration_sec = 9
+
 # 割り込み時の通知音（macOSのみ有効。System/Library/Sounds/内のファイル名）
 alert_sound = "Ping"
 
@@ -62,9 +73,27 @@ fg_default = "White"  # 通常時の文字色
 bg_default = "Reset"   # 通常時の背景色
 fg_alert = "Red"      # 割り込み時の文字色
 bg_alert = "Reset"     # 割り込み時の背景色
+
+# WebAPIソース設定（複数指定可）
+[[api_sources]]
+name = "Quake"
+url = "https://api.p2pquake.net/v2/history?codes=551&limit=1"
+interval_sec = 300
+json_keys = ["0/earthquake/hypocenter/name", "earthquake/magnitude"]
+enabled = false
+
+# WebSocketソース設定
+[[ws_sources]]
+name = "P2PQuake"
+url = "wss://api.p2pquake.net/v2/ws"
+# メッセージ内のJSONから抽出するキー（複数指定時はスペース区切りで結合）
+json_keys = ["earthquake/hypocenter/name", "earthquake/magnitude"]
+enabled = false
 ```
 
-> **Note**: 色の指定には、`Black`, `Red`, `Green`, `Yellow`, `Blue`, `Magenta`, `Cyan`, `Gray`, `DarkGray`, `LightRed`, `LightGreen`, `LightYellow`, `LightBlue`, `LightMagenta`, `LightCyan`, `White`, `Reset` などが使用できます。
+> **Note**: 
+> * 色の指定には、`Black`, `Red`, `Green`, `Yellow`, `Blue`, `Magenta`, `Cyan`, `Gray`, `DarkGray`, `LightRed`, `LightGreen`, `LightYellow`, `LightBlue`, `LightMagenta`, `LightCyan`, `White`, `Reset` などが使用できます。
+> * **重要**: 外部サービスのAPIやWebSocketを利用する際は、各サービスの利用規約を確認し、リクエスト頻度や接続制限などを遵守してください。デフォルト設定では、誤って過負荷をかけないよう無効(`enabled = false`)に設定されています。
 
 ## 使い方
 

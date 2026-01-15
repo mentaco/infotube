@@ -145,7 +145,7 @@ impl App {
         self.saved_scroll_offset = self.scroll_offset;
         self.paused = false;
         self.interrupt_text = Some(msg);
-        self.interrupt_remaining_ms = 9000;
+        self.interrupt_remaining_ms = (self.config.interrupt_duration_sec * 1000) as usize;
         self.scroll_offset = 0;
     }
 
