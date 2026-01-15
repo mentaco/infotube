@@ -13,6 +13,9 @@ listen_port = 8080
 # Show frame around the widget
 show_frame = true
 
+# Duration of interrupt display in seconds
+interrupt_duration_sec = 9
+
 # Alert sound name (macOS System Sounds)
 # Examples: "Ping", "Glass", "Sosumi", "Tink", "Basso"
 # Set to "None" to disable sound
@@ -24,3 +27,16 @@ fg_default = "White"
 bg_default = "None"
 fg_alert = "Red"
 bg_alert = "None"
+
+[[api_sources]]
+name = "Quake"
+url = "https://api.p2pquake.net/v2/history?codes=551&limit=1"
+interval_sec = 300
+json_keys = ["0/earthquake/hypocenter/name"]
+enabled = false
+
+[[ws_sources]]
+name = "P2PQuake"
+url = "wss://api.p2pquake.net/v2/ws"
+json_keys = ["earthquake/hypocenter/name", "earthquake/maxScale"]
+enabled = false
