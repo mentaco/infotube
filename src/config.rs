@@ -15,15 +15,28 @@ pub struct Config {
     /// 枠線を表示するかどうか
     #[serde(default = "default_show_frame")]
     pub show_frame: bool,
+    /// 割り込み表示の継続時間 (秒)
+    #[serde(default = "default_interrupt_duration")]
+    pub interrupt_duration_sec: u64,
     /// 割り込み時のサウンド名 (例: "Ping", "Glass")
     #[serde(default = "default_alert_sound")]
     pub alert_sound: String,
     /// 配色設定
     pub colors: Colors,
+    /// APIソースのリスト
+    #[serde(default)]
+    pub api_sources: Vec<ApiConfig>,
+    /// WebSocketソースのリスト
+    #[serde(default)]
+    pub ws_sources: Vec<WsConfig>,
 }
 
 fn default_show_frame() -> bool {
     true
+}
+
+fn default_interrupt_duration() -> u64 {
+    9
 }
 
 fn default_alert_sound() -> String {
@@ -40,6 +53,43 @@ pub struct Colors {
     pub fg_alert: String,
     /// 緊急通知（Alert）時の背景色 (例: "Black")
     pub bg_alert: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct ApiConfig {
+    /// APIの名称 (ログ表示用など)
+    pub name: String,
+    /// リクエストURL
+    pub url: String,
+    /// ポーリング間隔 (秒)
+    #[serde(default = "default_interval")]
+    pub interval_sec: u64,
+    /// JSONレスポンスから抽出するキーのパス (例: ["data", "message"])
+    pub json_keys: Option<Vec<String>>,
+    /// 有効/無効
+    #[serde(default = "default_api_enabled")]
+    pub enabled: bool,
+}
+
+fn default_interval() -> u64 {
+    300
+}
+
+fn default_api_enabled() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct WsConfig {
+    /// ソース名称
+    pub name: String,
+    /// 接続先URL (wss://...)
+    pub url: String,
+    /// JSONから抽出するキーのパス
+    pub json_keys: Option<Vec<String>>,
+    /// 有効/無効
+    #[serde(default = "default_api_enabled")]
+    pub enabled: bool,
 }
 
 impl Config {
@@ -59,13 +109,17 @@ impl Default for Config {
             scroll_speed_ms: 100,
             listen_port: 8080,
             show_frame: true,
+            interrupt_duration_sec: 9,
             alert_sound: "Ping".to_string(),
             colors: Colors {
                 fg_default: "White".to_string(),
                 bg_default: "None".to_string(),
-                fg_alert: "Red".to_string(),
-                bg_alert: "None".to_string(),
-            },
-        }
-    }
-}
+                                fg_alert: "Red".to_string(),
+                                bg_alert: "None".to_string(),
+                                        },
+                                        api_sources: vec![],
+                                        ws_sources: vec![],
+                                    }
+                                }
+                            }
+                            

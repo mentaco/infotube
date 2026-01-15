@@ -1,9 +1,12 @@
 mod app;
+mod api;
 mod config;
 mod event;
+mod json;
 mod server;
 mod tui;
 mod ui;
+mod ws_client;
 
 use anyhow::Result;
 use app::App;
@@ -26,14 +29,20 @@ async fn main() -> Result<()> {
     // 3. Start TCP Listener
     server::start(config.listen_port, events.sender());
 
-    // 4. Init Terminal
+    // 4. Start API Poller
+    api::start(config.api_sources.clone(), events.sender());
+
+    // 5. Start WebSocket Client
+    ws_client::start(config.ws_sources.clone(), events.sender());
+
+    // 6. Init Terminal
     let mut terminal = tui::init()?;
 
-    // 5. Run App
+    // 7. Run App
     let mut app = App::new(config);
     let res = app.run(&mut terminal, &mut (events as EventHandler)).await;
 
-    // 6. Restore Terminal
+    // 8. Restore Terminal
     tui::restore(&mut terminal)?;
 
     if let Err(err) = res {
